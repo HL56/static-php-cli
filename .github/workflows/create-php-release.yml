@@ -111,6 +111,12 @@ jobs:
           pattern: php-cli-${{ inputs.php-version }}-*
           path: artifacts
 
+      - name: Download compiled PHP-FPM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: php-fpm-${{ inputs.php-version }}-*
+          path: artifacts
+
       - name: Package release assets
         run: |
           set -euo pipefail
@@ -124,18 +130,30 @@ jobs:
 
           mkdir -p downloads
           for target in "${TARGETS[@]}"; do
-            source_file="artifacts/php-cli-${VERSION}-${target}/php"
-            if [ ! -f "$source_file" ]; then
-              echo "Error: Missing artifact $source_file"
+            cli_source_file="artifacts/php-cli-${VERSION}-${target}/php"
+            fpm_source_file="artifacts/php-fpm-${VERSION}-${target}/php-fpm"
+            if [ ! -f "$cli_source_file" ]; then
+              echo "Error: Missing artifact $cli_source_file"
+              find artifacts -maxdepth 3 -type f || true
+              exit 1
+            fi
+            if [ ! -f "$fpm_source_file" ]; then
+              echo "Error: Missing artifact $fpm_source_file"
               find artifacts -maxdepth 3 -type f || true
               exit 1
             fi
 
-            workdir="pack/${target}"
-            mkdir -p "$workdir"
-            install -m 755 "$source_file" "$workdir/php"
-            tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$workdir" php
+            cli_workdir="pack/cli/${target}"
+            fpm_workdir="pack/fpm/${target}"
+            mkdir -p "$cli_workdir" "$fpm_workdir"
+
+            install -m 755 "$cli_source_file" "$cli_workdir/php"
+            tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$cli_workdir" php
             echo "Packed downloads/php-${VERSION}-${target}.tar.gz"
+
+            install -m 755 "$fpm_source_file" "$fpm_workdir/php-fpm"
+            tar -czf "downloads/php-fpm-${VERSION}-${target}.tar.gz" -C "$fpm_workdir" php-fpm
+            echo "Packed downloads/php-fpm-${VERSION}-${target}.tar.gz"
           done
 
           ls -la downloads/
@@ -165,3 +183,7 @@ jobs:
               * linux-aarch64
               * macos-x86_64
               * macos-aarch64
+
+            Assets:
+              * `php-${{ inputs.php-version }}-<target>.tar.gz` (CLI)
+              * `php-fpm-${{ inputs.php-version }}-<target>.tar.gz` (FPM)
