@@ -143,17 +143,13 @@ jobs:
               exit 1
             fi
 
-            cli_workdir="pack/cli/${target}"
-            fpm_workdir="pack/fpm/${target}"
-            mkdir -p "$cli_workdir" "$fpm_workdir"
+            workdir="pack/${target}"
+            mkdir -p "$workdir"
 
-            install -m 755 "$cli_source_file" "$cli_workdir/php"
-            tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$cli_workdir" php
-            echo "Packed downloads/php-${VERSION}-${target}.tar.gz"
-
-            install -m 755 "$fpm_source_file" "$fpm_workdir/php-fpm"
-            tar -czf "downloads/php-fpm-${VERSION}-${target}.tar.gz" -C "$fpm_workdir" php-fpm
-            echo "Packed downloads/php-fpm-${VERSION}-${target}.tar.gz"
+            install -m 755 "$cli_source_file" "$workdir/php"
+            install -m 755 "$fpm_source_file" "$workdir/php-fpm"
+            tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$workdir" php php-fpm
+            echo "Packed downloads/php-${VERSION}-${target}.tar.gz (php + php-fpm)"
           done
 
           ls -la downloads/
@@ -185,5 +181,4 @@ jobs:
               * macos-aarch64
 
             Assets:
-              * `php-${{ inputs.php-version }}-<target>.tar.gz` (CLI)
-              * `php-fpm-${{ inputs.php-version }}-<target>.tar.gz` (FPM)
+              * `php-${{ inputs.php-version }}-<target>.tar.gz` (contains `php` and `php-fpm`)
