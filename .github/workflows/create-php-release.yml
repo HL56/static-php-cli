@@ -93,7 +93,7 @@ jobs:
       extra-libs: ${{ inputs.extra-libs }}
       build-cli: true
       build-micro: false
-      build-fpm: false
+      build-fpm: true
       prefer-pre-built: ${{ inputs.prefer-pre-built }}
       debug: ${{ inputs.debug }}
       no-strip: ${{ inputs.no-strip }}
