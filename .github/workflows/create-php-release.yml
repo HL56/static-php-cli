@@ -1,0 +1,122 @@
+name: Create PHP Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      php-version:
+        description: "PHP version to compile and release (e.g., 8.4.13)"
+        required: true
+        type: string
+      extensions:
+        description: "Extensions to build (comma separated)"
+        required: true
+        type: string
+      extra-libs:
+        description: "Extra libraries to build (optional, comma separated)"
+        required: false
+        type: string
+      prefer-pre-built:
+        description: "Prefer pre-built binaries (reduce build time)"
+        default: true
+        type: boolean
+      debug:
+        description: "Show full build logs"
+        default: false
+        type: boolean
+      no-strip:
+        description: "Keep debug symbols for debugging"
+        default: false
+        type: boolean
+
+jobs:
+  build:
+    name: Build ${{ inputs.php-version }} on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - linux-x86_64
+          - linux-aarch64
+          - macos-x86_64
+          - macos-aarch64
+    uses: ./.github/workflows/build-unix.yml
+    secrets: inherit
+    with:
+      os: ${{ matrix.os }}
+      php-version: ${{ inputs.php-version }}
+      extensions: ${{ inputs.extensions }}
+      extra-libs: ${{ inputs.extra-libs }}
+      build-cli: true
+      build-micro: false
+      build-fpm: false
+      prefer-pre-built: ${{ inputs.prefer-pre-built }}
+      debug: ${{ inputs.debug }}
+      no-strip: ${{ inputs.no-strip }}
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - name: Download compiled PHP artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: php-cli-${{ inputs.php-version }}-*
+          path: artifacts
+
+      - name: Package release assets
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.php-version }}"
+          TARGETS=(
+            "linux-x86_64"
+            "linux-aarch64"
+            "macos-x86_64"
+            "macos-aarch64"
+          )
+
+          mkdir -p downloads
+          for target in "${TARGETS[@]}"; do
+            source_file="artifacts/php-cli-${VERSION}-${target}/php"
+            if [ ! -f "$source_file" ]; then
+              echo "Error: Missing artifact $source_file"
+              find artifacts -maxdepth 3 -type f || true
+              exit 1
+            fi
+
+            workdir="pack/${target}"
+            mkdir -p "$workdir"
+            install -m 755 "$source_file" "$workdir/php"
+            tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$workdir" php
+            echo "Packed downloads/php-${VERSION}-${target}.tar.gz"
+          done
+
+          ls -la downloads/
+
+      - name: Extract major version
+        run: |
+          echo "VERSION_MAJOR=$(echo "${{ inputs.php-version }}" | cut -d'.' -f1)" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.php-version }}
+          name: PHP v${{ inputs.php-version }}
+          draft: false
+          prerelease: false
+          overwrite_files: true
+          files: downloads/*.tar.gz
+          body: |
+            # PHP v${{ inputs.php-version }}
+
+            Extensions: `${{ inputs.extensions }}`
+
+            Changelog: [What's changed in v${{ inputs.php-version }}?](https://www.php.net/ChangeLog-${{ env.VERSION_MAJOR }}.php#${{ inputs.php-version }})
+
+            Targets:
+              * linux-x86_64
+              * linux-aarch64
+              * macos-x86_64
+              * macos-aarch64
