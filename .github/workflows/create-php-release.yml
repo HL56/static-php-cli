@@ -29,8 +29,53 @@ on:
         type: boolean
 
 jobs:
+  validate-inputs:
+    name: Validate build inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate extension compatibility
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.php-version }}"
+          EXTENSIONS_RAW="${{ inputs.extensions }}"
+          EXTENSIONS="$(echo "$EXTENSIONS_RAW" | tr -d '[:space:]')"
+          EXTS=",${EXTENSIONS},"
+
+          has_ext() {
+            [[ "$EXTS" == *",$1,"* ]]
+          }
+
+          version_major_minor="$(echo "$VERSION" | awk -F. '{print $1 "." $2}')"
+          fail=0
+
+          # ext-imap was dropped from PHP 8.4+
+          if [ "$(printf '%s\n' "8.4" "$version_major_minor" | sort -V | head -n1)" = "8.4" ] && has_ext "imap"; then
+            echo "Error: 'imap' is not supported for PHP ${VERSION} (PHP >= 8.4)."
+            echo "Please remove 'imap' from extensions or use PHP < 8.4."
+            fail=1
+          fi
+
+          # Known conflicts from extension notes
+          if has_ext "swoole-hook-pgsql" && has_ext "pdo_pgsql"; then
+            echo "Error: 'swoole-hook-pgsql' conflicts with 'pdo_pgsql'."
+            fail=1
+          fi
+          if has_ext "swoole-hook-sqlite" && has_ext "pdo_sqlite"; then
+            echo "Error: 'swoole-hook-sqlite' conflicts with 'pdo_sqlite'."
+            fail=1
+          fi
+          if has_ext "swoole-hook-odbc" && has_ext "pdo_odbc"; then
+            echo "Error: 'swoole-hook-odbc' conflicts with 'pdo_odbc'."
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+
   build:
     name: Build ${{ inputs.php-version }} on ${{ matrix.os }}
+    needs: validate-inputs
     strategy:
       fail-fast: false
       matrix:

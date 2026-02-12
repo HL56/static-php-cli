@@ -199,6 +199,24 @@ jobs:
         run: ${{ needs.define-build.outputs.download }}
       - name: "Build PHP"
         run: ${{ needs.define-build.outputs.build }}
+
+      - name: "Show SPC logs on failure"
+        if: failure()
+        run: |
+          echo "===== log/spc.output.log (tail -n 200) ====="
+          tail -n 200 log/spc.output.log || true
+          echo "===== log/spc.shell.log (tail -n 200) ====="
+          tail -n 200 log/spc.shell.log || true
+
+      - name: "Upload SPC logs"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ inputs.php-version }}-${{ inputs.os }}
+          path: |
+            log/spc.output.log
+            log/spc.shell.log
+          if-no-files-found: ignore
 #      - name: Setup tmate session
 #        if: ${{ failure() }}
 #        uses: mxschmitt/action-tmate@v3
