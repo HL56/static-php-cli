@@ -40,10 +40,17 @@ abstract class Shell
     public function setEnv(array $env): static
     {
         foreach ($env as $k => $v) {
-            if (trim($v) === '') {
+            if ($v === null || $v === false) {
                 continue;
             }
-            $this->env[$k] = trim($v);
+            if (!is_scalar($v)) {
+                continue;
+            }
+            $value = trim((string) $v);
+            if ($value === '') {
+                continue;
+            }
+            $this->env[$k] = $value;
         }
         return $this;
     }
@@ -51,13 +58,20 @@ abstract class Shell
     public function appendEnv(array $env): static
     {
         foreach ($env as $k => $v) {
-            if ($v === '') {
+            if ($v === null || $v === false) {
+                continue;
+            }
+            if (!is_scalar($v)) {
+                continue;
+            }
+            $value = trim((string) $v);
+            if ($value === '') {
                 continue;
             }
             if (!isset($this->env[$k])) {
-                $this->env[$k] = $v;
+                $this->env[$k] = $value;
             } else {
-                $this->env[$k] = "{$v} {$this->env[$k]}";
+                $this->env[$k] = "{$value} {$this->env[$k]}";
             }
         }
         return $this;
