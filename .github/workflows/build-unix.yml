@@ -212,7 +212,7 @@ jobs:
             esac
           fi
 
-          DOWN_CMD="$DOWN_CMD --with-php=${{ inputs.php-version }} --for-extensions=$EXTENSIONS --ignore-cache-sources=php-src --shallow-clone --custom-git=php-src:${PHP_SRC_REV}:https://github.com/php/php-src.git"
+          DOWN_CMD="$DOWN_CMD --with-php=${{ inputs.php-version }} --for-extensions=$EXTENSIONS --ignore-cache-sources=php-src --custom-git=php-src:${PHP_SRC_REV}:https://github.com/php/php-src.git"
           BUILD_CMD="$BUILD_CMD $STATIC_EXTENSIONS"
           if [ -n "$SHARED_EXTENSIONS" ]; then
             BUILD_CMD="$BUILD_CMD --build-shared=$SHARED_EXTENSIONS"
