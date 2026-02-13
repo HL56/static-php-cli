@@ -42,6 +42,10 @@ on:
       build-fpm:
         description: Build fpm binary
         type: boolean
+      build-frankenphp:
+        description: Build FrankenPHP binary (requires ZTS)
+        type: boolean
+        default: false
       prefer-pre-built:
         description: Prefer pre-built binaries (reduce build time)
         type: boolean
@@ -51,10 +55,6 @@ on:
         type: boolean
       no-strip:
         description: Keep debug symbols for debugging
-        type: boolean
-        default: false
-      use-self-hosted:
-        description: Run build job on self-hosted runner
         type: boolean
         default: false
   workflow_call:
@@ -86,6 +86,10 @@ on:
       build-fpm:
         description: Build fpm binary
         type: boolean
+      build-frankenphp:
+        description: Build FrankenPHP binary (requires ZTS)
+        type: boolean
+        default: false
       prefer-pre-built:
         description: Prefer pre-built binaries (reduce build time)
         type: boolean
@@ -97,13 +101,9 @@ on:
         description: Keep debug symbols for debugging
         type: boolean
         default: false
-      use-self-hosted:
-        description: Run build job on self-hosted runner
-        type: boolean
-        default: true
 
 env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   define-build:
@@ -111,9 +111,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       run: ${{ steps.gendef.outputs.run }}
+      pkg: ${{ steps.gendef.outputs.pkg }}
       download: ${{ steps.gendef.outputs.download }}
       build: ${{ steps.gendef.outputs.build }}
-      xdebug: ${{ steps.gendef.outputs.xdebug }}
     steps:
       - name: "Checkout"
         uses: actions/checkout@v4
@@ -125,54 +125,48 @@ jobs:
             linux-x86_64)
               DOWN_CMD="./bin/spc-alpine-docker download"
               BUILD_CMD="./bin/spc-alpine-docker build"
+              PKG_CMD="./bin/spc-alpine-docker install-pkg go-xcaddy"
               RUNS_ON='"ubuntu-latest"'
               ;;
             linux-aarch64)
               DOWN_CMD="./bin/spc-alpine-docker download"
               BUILD_CMD="./bin/spc-alpine-docker build"
+              PKG_CMD="./bin/spc-alpine-docker install-pkg go-xcaddy"
               RUNS_ON='"ubuntu-24.04-arm"'
               ;;
             linux-x86_64-glibc)
               DOWN_CMD="./bin/spc-gnu-docker download"
               BUILD_CMD="./bin/spc-gnu-docker build"
+              PKG_CMD="./bin/spc-gnu-docker install-pkg go-xcaddy"
               RUNS_ON='"ubuntu-22.04"'
               ;;
             linux-aarch64-glibc)
               DOWN_CMD="./bin/spc-gnu-docker download"
               BUILD_CMD="./bin/spc-gnu-docker build"
+              PKG_CMD="./bin/spc-gnu-docker install-pkg go-xcaddy"
               RUNS_ON='"ubuntu-22.04-arm"'
               ;;
             macos-x86_64)
               DOWN_CMD="composer update --no-dev --classmap-authoritative && ./bin/spc doctor --auto-fix && ./bin/spc download"
               BUILD_CMD="./bin/spc build"
+              PKG_CMD="composer update --no-dev --classmap-authoritative && ./bin/spc doctor --auto-fix && ./bin/spc install-pkg go-xcaddy"
               RUNS_ON='"macos-15-intel"'
               ;;
             macos-aarch64)
               DOWN_CMD="composer update --no-dev --classmap-authoritative && ./bin/spc doctor --auto-fix && ./bin/spc download"
               BUILD_CMD="./bin/spc build"
+              PKG_CMD="composer update --no-dev --classmap-authoritative && ./bin/spc doctor --auto-fix && ./bin/spc install-pkg go-xcaddy"
               RUNS_ON='"macos-15"'
               ;;
           esac
 
-          if [ ${{ inputs.use-self-hosted }} == true ]; then
-            case "${{ inputs.os }}" in
-              linux-x86_64|linux-x86_64-glibc)
-                RUNS_ON='["self-hosted","Linux","X64"]'
-                ;;
-              linux-aarch64|linux-aarch64-glibc)
-                RUNS_ON='["self-hosted","Linux","ARM64"]'
-                ;;
-              macos-x86_64)
-                RUNS_ON='["self-hosted","macOS","X64"]'
-                ;;
-              macos-aarch64)
-                RUNS_ON='["self-hosted","macOS","ARM64"]'
-                ;;
-            esac
-          fi
-
           EXTENSIONS_RAW="${{ inputs.extensions }}"
           EXTENSIONS="$(echo "$EXTENSIONS_RAW" | tr -d '[:space:]')"
+          EXTRA_LIBS_RAW="${{ inputs.extra-libs }}"
+          EXTRA_LIBS="$(echo "$EXTRA_LIBS_RAW" | tr -d '[:space:]')"
+          DOWN_LIBS="$EXTRA_LIBS"
+          BUILD_LIBS="$EXTRA_LIBS"
+
           PHP_VERSION="${{ inputs.php-version }}"
           if [[ "$PHP_VERSION" == "git" ]]; then
             PHP_SRC_REV="master"
@@ -181,68 +175,58 @@ jobs:
           else
             PHP_SRC_REV="PHP-${PHP_VERSION}"
           fi
-          SHARED_EXTENSIONS=""
-          HAS_XDEBUG=false
-          STATIC_EXTENSIONS="$EXTENSIONS"
-          if [[ ",$EXTENSIONS," == *",xdebug,"* ]]; then
-            SHARED_EXTENSIONS="xdebug"
-            HAS_XDEBUG=true
-            STATIC_EXTENSIONS="$(echo ",$EXTENSIONS," | sed -E 's/,xdebug,/,/g; s/^,//; s/,$//; s/,+/,/g')"
-          fi
 
-          if [ -z "$STATIC_EXTENSIONS" ]; then
-            echo "Error: xdebug is shared-only, please provide at least one static extension." >&2
-            exit 1
-          fi
-
-          # xdebug shared build on Linux requires a dynamic/glibc target.
-          if [ "$HAS_XDEBUG" = true ]; then
+          if [ ${{ inputs.build-frankenphp }} == true ]; then
             case "${{ inputs.os }}" in
-              linux-x86_64)
-                DOWN_CMD="./bin/spc-gnu-docker download"
-                BUILD_CMD="./bin/spc-gnu-docker build"
-                ;;
-              linux-aarch64)
-                DOWN_CMD="./bin/spc-gnu-docker download"
-                BUILD_CMD="./bin/spc-gnu-docker build"
-                if [ ${{ inputs.use-self-hosted }} != true ]; then
-                  RUNS_ON='"ubuntu-22.04-arm"'
+              macos-*)
+                if [[ ",$EXTENSIONS," != *",xml,"* ]]; then
+                  echo "Error: FrankenPHP on macOS requires xml extension (libxml2)." >&2
+                  exit 1
                 fi
                 ;;
             esac
+            if [[ ",$DOWN_LIBS," != *",frankenphp,"* ]]; then
+              DOWN_LIBS="${DOWN_LIBS:+$DOWN_LIBS,}frankenphp"
+            fi
           fi
 
           DOWN_CMD="$DOWN_CMD --with-php=${{ inputs.php-version }} --for-extensions=$EXTENSIONS --ignore-cache-sources=php-src --custom-git=php-src:${PHP_SRC_REV}:https://github.com/php/php-src.git"
-          BUILD_CMD="$BUILD_CMD $STATIC_EXTENSIONS"
-          if [ -n "$SHARED_EXTENSIONS" ]; then
-            BUILD_CMD="$BUILD_CMD --build-shared=$SHARED_EXTENSIONS"
+          BUILD_CMD="$BUILD_CMD $EXTENSIONS"
+
+          if [ -n "$DOWN_LIBS" ]; then
+            DOWN_CMD="$DOWN_CMD --for-libs=$DOWN_LIBS"
           fi
-          if [ -n "${{ inputs.extra-libs }}" ]; then
-            DOWN_CMD="$DOWN_CMD --for-libs=${{ inputs.extra-libs }}"
-            BUILD_CMD="$BUILD_CMD --with-libs=${{ inputs.extra-libs }}"
+          if [ -n "$BUILD_LIBS" ]; then
+            BUILD_CMD="$BUILD_CMD --with-libs=$BUILD_LIBS"
+          fi
+          if [ ${{ inputs.build-frankenphp }} == true ]; then
+            BUILD_CMD="$BUILD_CMD --build-frankenphp --enable-zts"
           fi
           if [ ${{ inputs.debug }} == true ]; then
             DOWN_CMD="$DOWN_CMD --debug"
             BUILD_CMD="$BUILD_CMD --debug"
+            PKG_CMD="$PKG_CMD --debug"
           fi
           if [ ${{ inputs.prefer-pre-built }} == true ]; then
-              DOWN_CMD="$DOWN_CMD --prefer-pre-built"
+            DOWN_CMD="$DOWN_CMD --prefer-pre-built"
           fi
           if [ ${{ inputs.build-cli }} == true ]; then
-              BUILD_CMD="$BUILD_CMD --build-cli"
+            BUILD_CMD="$BUILD_CMD --build-cli"
           fi
           if [ ${{ inputs.build-micro }} == true ]; then
-              BUILD_CMD="$BUILD_CMD --build-micro"
+            BUILD_CMD="$BUILD_CMD --build-micro"
           fi
           if [ ${{ inputs.build-fpm }} == true ]; then
-              BUILD_CMD="$BUILD_CMD --build-fpm"
+            BUILD_CMD="$BUILD_CMD --build-fpm"
           fi
+
+          echo 'pkg='"$PKG_CMD" >> "$GITHUB_OUTPUT"
           echo 'download='"$DOWN_CMD" >> "$GITHUB_OUTPUT"
           echo 'build='"$BUILD_CMD" >> "$GITHUB_OUTPUT"
           echo 'run='"$RUNS_ON" >> "$GITHUB_OUTPUT"
-          echo 'xdebug='"$HAS_XDEBUG" >> "$GITHUB_OUTPUT"
+
   build:
-    name: "Build ${{ inputs.version }} on ${{ inputs.os }}"
+    name: "Build ${{ inputs.php-version }} on ${{ inputs.os }}"
     runs-on: ${{ fromJSON(needs.define-build.outputs.run) }}
     needs: define-build
     timeout-minutes: 240
@@ -266,8 +250,14 @@ jobs:
         with:
           path: downloads
           key: php-dependencies-${{ inputs.os }}
+
+      - name: "Install go-xcaddy for FrankenPHP"
+        if: ${{ inputs.build-frankenphp == true }}
+        run: ${{ needs.define-build.outputs.pkg }}
+
       - name: "Download sources"
         run: ${{ needs.define-build.outputs.download }}
+
       - name: "Build PHP"
         run: ${{ needs.define-build.outputs.build }}
 
@@ -288,9 +278,6 @@ jobs:
             log/spc.output.log
             log/spc.shell.log
           if-no-files-found: ignore
-#      - name: Setup tmate session
-#        if: ${{ failure() }}
-#        uses: mxschmitt/action-tmate@v3
 
       # Upload cli executable
       - if: ${{ inputs.build-cli == true }}
@@ -316,13 +303,13 @@ jobs:
           name: php-fpm-${{ inputs.php-version }}-${{ inputs.os }}
           path: buildroot/bin/php-fpm
 
-      # Upload shared xdebug module when requested
-      - if: ${{ needs.define-build.outputs.xdebug == 'true' }}
-        name: "Upload Xdebug Shared Module"
+      # Upload FrankenPHP executable
+      - if: ${{ inputs.build-frankenphp == true }}
+        name: "Upload FrankenPHP SAPI"
         uses: actions/upload-artifact@v4
         with:
-          name: php-xdebug-${{ inputs.php-version }}-${{ inputs.os }}
-          path: buildroot/modules/xdebug.so
+          name: php-frankenphp-${{ inputs.php-version }}-${{ inputs.os }}
+          path: buildroot/bin/frankenphp
 
       # Upload extensions metadata
       - uses: actions/upload-artifact@v4
@@ -330,6 +317,7 @@ jobs:
         with:
           name: license-files-${{ inputs.php-version }}-${{ inputs.os }}
           path: buildroot/license/
+
       - uses: actions/upload-artifact@v4
         name: "Upload Build Metadata"
         with:

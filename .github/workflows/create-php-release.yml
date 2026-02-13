@@ -27,8 +27,8 @@ on:
         description: "Keep debug symbols for debugging"
         default: false
         type: boolean
-      use-self-hosted:
-        description: "Run build jobs on self-hosted runners"
+      build-frankenphp:
+        description: "Build and release FrankenPHP binaries"
         default: false
         type: boolean
 
@@ -73,6 +73,11 @@ jobs:
             fail=1
           fi
 
+          if [ "${{ inputs.build-frankenphp }}" = "true" ] && ! has_ext "xml"; then
+            echo "Error: FrankenPHP build requires 'xml' extension (libxml2)."
+            fail=1
+          fi
+
           if [ "$fail" -ne 0 ]; then
             exit 1
           fi
@@ -98,10 +103,10 @@ jobs:
       build-cli: true
       build-micro: false
       build-fpm: true
+      build-frankenphp: ${{ inputs.build-frankenphp }}
       prefer-pre-built: ${{ inputs.prefer-pre-built }}
       debug: ${{ inputs.debug }}
       no-strip: ${{ inputs.no-strip }}
-      use-self-hosted: ${{ inputs.use-self-hosted }}
 
   create-release:
     name: Create GitHub Release
@@ -122,18 +127,18 @@ jobs:
           pattern: php-fpm-${{ inputs.php-version }}-*
           path: artifacts
 
-      - name: Download compiled Xdebug artifacts
-        if: contains(inputs.extensions, 'xdebug')
+      - name: Download compiled FrankenPHP artifacts
+        if: ${{ inputs.build-frankenphp == true }}
         uses: actions/download-artifact@v4
         with:
-          pattern: php-xdebug-${{ inputs.php-version }}-*
+          pattern: php-frankenphp-${{ inputs.php-version }}-*
           path: artifacts
 
       - name: Package release assets
         run: |
           set -euo pipefail
           VERSION="${{ inputs.php-version }}"
-          WITH_XDEBUG="${{ contains(inputs.extensions, 'xdebug') }}"
+          WITH_FRANKENPHP="${{ inputs.build-frankenphp }}"
           TARGETS=(
             "linux-x86_64"
             "linux-aarch64"
@@ -161,20 +166,21 @@ jobs:
 
             install -m 755 "$cli_source_file" "$workdir/php"
             install -m 755 "$fpm_source_file" "$workdir/php-fpm"
-            if [ "$WITH_XDEBUG" = "true" ]; then
-              xdebug_source_file="artifacts/php-xdebug-${VERSION}-${target}/xdebug.so"
-              if [ ! -f "$xdebug_source_file" ]; then
-                echo "Error: Missing artifact $xdebug_source_file"
+
+            if [ "$WITH_FRANKENPHP" = "true" ]; then
+              frankenphp_source_file="artifacts/php-frankenphp-${VERSION}-${target}/frankenphp"
+              if [ ! -f "$frankenphp_source_file" ]; then
+                echo "Error: Missing artifact $frankenphp_source_file"
                 find artifacts -maxdepth 3 -type f || true
                 exit 1
               fi
-              mkdir -p "$workdir/modules"
-              install -m 755 "$xdebug_source_file" "$workdir/modules/xdebug.so"
-              tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$workdir" php php-fpm modules/xdebug.so
+              install -m 755 "$frankenphp_source_file" "$workdir/frankenphp"
+              tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$workdir" php php-fpm frankenphp
+              echo "Packed downloads/php-${VERSION}-${target}.tar.gz (php + php-fpm + frankenphp)"
             else
               tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$workdir" php php-fpm
+              echo "Packed downloads/php-${VERSION}-${target}.tar.gz (php + php-fpm)"
             fi
-            echo "Packed downloads/php-${VERSION}-${target}.tar.gz (php + php-fpm)"
           done
 
           ls -la downloads/
@@ -207,4 +213,4 @@ jobs:
 
             Assets:
               * `php-${{ inputs.php-version }}-<target>.tar.gz` (contains `php` and `php-fpm`)
-              * If `xdebug` is selected, Unix tarballs also contain `modules/xdebug.so`
+              * If `build-frankenphp` is enabled, Unix tarballs also contain `frankenphp`
