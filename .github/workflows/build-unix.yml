@@ -173,6 +173,14 @@ jobs:
 
           EXTENSIONS_RAW="${{ inputs.extensions }}"
           EXTENSIONS="$(echo "$EXTENSIONS_RAW" | tr -d '[:space:]')"
+          PHP_VERSION="${{ inputs.php-version }}"
+          if [[ "$PHP_VERSION" == "git" ]]; then
+            PHP_SRC_REV="master"
+          elif [[ "$PHP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            PHP_SRC_REV="php-${PHP_VERSION}"
+          else
+            PHP_SRC_REV="PHP-${PHP_VERSION}"
+          fi
           SHARED_EXTENSIONS=""
           HAS_XDEBUG=false
           STATIC_EXTENSIONS="$EXTENSIONS"
@@ -204,7 +212,7 @@ jobs:
             esac
           fi
 
-          DOWN_CMD="$DOWN_CMD --with-php=${{ inputs.php-version }} --for-extensions=$EXTENSIONS --ignore-cache-sources=php-src"
+          DOWN_CMD="$DOWN_CMD --with-php=${{ inputs.php-version }} --for-extensions=$EXTENSIONS --ignore-cache-sources=php-src --shallow-clone --custom-git=php-src:${PHP_SRC_REV}:https://github.com/php/php-src.git"
           BUILD_CMD="$BUILD_CMD $STATIC_EXTENSIONS"
           if [ -n "$SHARED_EXTENSIONS" ]; then
             BUILD_CMD="$BUILD_CMD --build-shared=$SHARED_EXTENSIONS"
