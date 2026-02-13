@@ -53,6 +53,10 @@ on:
         description: Keep debug symbols for debugging
         type: boolean
         default: false
+      use-self-hosted:
+        description: Run build job on self-hosted runner
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       os:
@@ -93,6 +97,10 @@ on:
         description: Keep debug symbols for debugging
         type: boolean
         default: false
+      use-self-hosted:
+        description: Run build job on self-hosted runner
+        type: boolean
+        default: true
 
 env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -117,34 +125,51 @@ jobs:
             linux-x86_64)
               DOWN_CMD="./bin/spc-alpine-docker download"
               BUILD_CMD="./bin/spc-alpine-docker build"
-              RUNS_ON="ubuntu-latest"
+              RUNS_ON='"ubuntu-latest"'
               ;;
             linux-aarch64)
               DOWN_CMD="./bin/spc-alpine-docker download"
               BUILD_CMD="./bin/spc-alpine-docker build"
-              RUNS_ON="ubuntu-24.04-arm"
+              RUNS_ON='"ubuntu-24.04-arm"'
               ;;
             linux-x86_64-glibc)
               DOWN_CMD="./bin/spc-gnu-docker download"
               BUILD_CMD="./bin/spc-gnu-docker build"
-              RUNS_ON="ubuntu-22.04"
+              RUNS_ON='"ubuntu-22.04"'
               ;;
             linux-aarch64-glibc)
               DOWN_CMD="./bin/spc-gnu-docker download"
               BUILD_CMD="./bin/spc-gnu-docker build"
-              RUNS_ON="ubuntu-22.04-arm"
+              RUNS_ON='"ubuntu-22.04-arm"'
               ;;
             macos-x86_64)
               DOWN_CMD="composer update --no-dev --classmap-authoritative && ./bin/spc doctor --auto-fix && ./bin/spc download"
               BUILD_CMD="./bin/spc build"
-              RUNS_ON="macos-15-intel"
+              RUNS_ON='"macos-15-intel"'
               ;;
             macos-aarch64)
               DOWN_CMD="composer update --no-dev --classmap-authoritative && ./bin/spc doctor --auto-fix && ./bin/spc download"
               BUILD_CMD="./bin/spc build"
-              RUNS_ON="macos-15"
+              RUNS_ON='"macos-15"'
               ;;
           esac
+
+          if [ ${{ inputs.use-self-hosted }} == true ]; then
+            case "${{ inputs.os }}" in
+              linux-x86_64|linux-x86_64-glibc)
+                RUNS_ON='["self-hosted","Linux","X64"]'
+                ;;
+              linux-aarch64|linux-aarch64-glibc)
+                RUNS_ON='["self-hosted","Linux","ARM64"]'
+                ;;
+              macos-x86_64)
+                RUNS_ON='["self-hosted","macOS","X64"]'
+                ;;
+              macos-aarch64)
+                RUNS_ON='["self-hosted","macOS","ARM64"]'
+                ;;
+            esac
+          fi
 
           EXTENSIONS_RAW="${{ inputs.extensions }}"
           EXTENSIONS="$(echo "$EXTENSIONS_RAW" | tr -d '[:space:]')"
@@ -172,7 +197,9 @@ jobs:
               linux-aarch64)
                 DOWN_CMD="./bin/spc-gnu-docker download"
                 BUILD_CMD="./bin/spc-gnu-docker build"
-                RUNS_ON="ubuntu-22.04-arm"
+                if [ ${{ inputs.use-self-hosted }} != true ]; then
+                  RUNS_ON='"ubuntu-22.04-arm"'
+                fi
                 ;;
             esac
           fi
@@ -208,7 +235,7 @@ jobs:
           echo 'xdebug='"$HAS_XDEBUG" >> "$GITHUB_OUTPUT"
   build:
     name: "Build ${{ inputs.version }} on ${{ inputs.os }}"
-    runs-on: ${{ needs.define-build.outputs.run }}
+    runs-on: ${{ fromJSON(needs.define-build.outputs.run) }}
     needs: define-build
     timeout-minutes: 240
     steps:

@@ -27,6 +27,10 @@ on:
         description: "Keep debug symbols for debugging"
         default: false
         type: boolean
+      use-self-hosted:
+        description: "Run build jobs on self-hosted runners"
+        default: true
+        type: boolean
 
 jobs:
   validate-inputs:
@@ -97,6 +101,7 @@ jobs:
       prefer-pre-built: ${{ inputs.prefer-pre-built }}
       debug: ${{ inputs.debug }}
       no-strip: ${{ inputs.no-strip }}
+      use-self-hosted: ${{ inputs.use-self-hosted }}
 
   create-release:
     name: Create GitHub Release
