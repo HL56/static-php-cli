@@ -56,7 +56,7 @@ on:
       use-self-hosted:
         description: Run build job on self-hosted runner
         type: boolean
-        default: true
+        default: false
   workflow_call:
     inputs:
       os:
