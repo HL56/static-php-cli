@@ -114,6 +114,7 @@ jobs:
       pkg: ${{ steps.gendef.outputs.pkg }}
       download: ${{ steps.gendef.outputs.download }}
       build: ${{ steps.gendef.outputs.build }}
+      xdebug: ${{ steps.gendef.outputs.xdebug }}
     steps:
       - name: "Checkout"
         uses: actions/checkout@v4
@@ -162,6 +163,32 @@ jobs:
 
           EXTENSIONS_RAW="${{ inputs.extensions }}"
           EXTENSIONS="$(echo "$EXTENSIONS_RAW" | tr -d '[:space:]')"
+          SHARED_EXTENSIONS=""
+          HAS_XDEBUG=false
+          STATIC_EXTENSIONS="$EXTENSIONS"
+          if [[ ",$EXTENSIONS," == *",xdebug,"* ]]; then
+            SHARED_EXTENSIONS="xdebug"
+            HAS_XDEBUG=true
+            STATIC_EXTENSIONS="$(echo ",$EXTENSIONS," | sed -E 's/,xdebug,/,/g; s/^,//; s/,$//; s/,+/,/g')"
+            case "${{ inputs.os }}" in
+              linux-x86_64)
+                DOWN_CMD="./bin/spc-gnu-docker download"
+                BUILD_CMD="./bin/spc-gnu-docker build"
+                PKG_CMD="./bin/spc-gnu-docker install-pkg go-xcaddy"
+                RUNS_ON='"ubuntu-22.04"'
+                ;;
+              linux-aarch64)
+                DOWN_CMD="./bin/spc-gnu-docker download"
+                BUILD_CMD="./bin/spc-gnu-docker build"
+                PKG_CMD="./bin/spc-gnu-docker install-pkg go-xcaddy"
+                RUNS_ON='"ubuntu-22.04-arm"'
+                ;;
+            esac
+          fi
+          if [ -z "$STATIC_EXTENSIONS" ]; then
+            echo "Error: xdebug is shared-only, please provide at least one static extension." >&2
+            exit 1
+          fi
           EXTRA_LIBS_RAW="${{ inputs.extra-libs }}"
           EXTRA_LIBS="$(echo "$EXTRA_LIBS_RAW" | tr -d '[:space:]')"
           DOWN_LIBS="$EXTRA_LIBS"
@@ -191,13 +218,16 @@ jobs:
           fi
 
           DOWN_CMD="$DOWN_CMD --with-php=${{ inputs.php-version }} --for-extensions=$EXTENSIONS --ignore-cache-sources=php-src --custom-git=php-src:${PHP_SRC_REV}:https://github.com/php/php-src.git"
-          BUILD_CMD="$BUILD_CMD $EXTENSIONS"
+          BUILD_CMD="$BUILD_CMD $STATIC_EXTENSIONS"
 
           if [ -n "$DOWN_LIBS" ]; then
             DOWN_CMD="$DOWN_CMD --for-libs=$DOWN_LIBS"
           fi
           if [ -n "$BUILD_LIBS" ]; then
             BUILD_CMD="$BUILD_CMD --with-libs=$BUILD_LIBS"
+          fi
+          if [ -n "$SHARED_EXTENSIONS" ]; then
+            BUILD_CMD="$BUILD_CMD --build-shared=$SHARED_EXTENSIONS"
           fi
           if [ ${{ inputs.build-frankenphp }} == true ]; then
             BUILD_CMD="$BUILD_CMD --build-frankenphp --enable-zts"
@@ -224,6 +254,7 @@ jobs:
           echo 'download='"$DOWN_CMD" >> "$GITHUB_OUTPUT"
           echo 'build='"$BUILD_CMD" >> "$GITHUB_OUTPUT"
           echo 'run='"$RUNS_ON" >> "$GITHUB_OUTPUT"
+          echo 'xdebug='"$HAS_XDEBUG" >> "$GITHUB_OUTPUT"
 
   build:
     name: "Build ${{ inputs.php-version }} on ${{ inputs.os }}"
@@ -310,6 +341,14 @@ jobs:
         with:
           name: php-frankenphp-${{ inputs.php-version }}-${{ inputs.os }}
           path: buildroot/bin/frankenphp
+
+      # Upload shared xdebug module when requested
+      - if: ${{ needs.define-build.outputs.xdebug == 'true' }}
+        name: "Upload Xdebug Shared Module"
+        uses: actions/upload-artifact@v4
+        with:
+          name: php-xdebug-${{ inputs.php-version }}-${{ inputs.os }}
+          path: buildroot/modules/xdebug.so
 
       # Upload extensions metadata
       - uses: actions/upload-artifact@v4

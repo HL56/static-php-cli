@@ -134,11 +134,19 @@ jobs:
           pattern: php-frankenphp-${{ inputs.php-version }}-*
           path: artifacts
 
+      - name: Download compiled Xdebug artifacts
+        if: contains(inputs.extensions, 'xdebug')
+        uses: actions/download-artifact@v4
+        with:
+          pattern: php-xdebug-${{ inputs.php-version }}-*
+          path: artifacts
+
       - name: Package release assets
         run: |
           set -euo pipefail
           VERSION="${{ inputs.php-version }}"
           WITH_FRANKENPHP="${{ inputs.build-frankenphp }}"
+          WITH_XDEBUG="${{ contains(inputs.extensions, 'xdebug') }}"
           TARGETS=(
             "linux-x86_64"
             "linux-aarch64"
@@ -166,6 +174,19 @@ jobs:
 
             install -m 755 "$cli_source_file" "$workdir/php"
             install -m 755 "$fpm_source_file" "$workdir/php-fpm"
+            tar_items="php php-fpm"
+
+            if [ "$WITH_XDEBUG" = "true" ]; then
+              xdebug_source_file="artifacts/php-xdebug-${VERSION}-${target}/xdebug.so"
+              if [ ! -f "$xdebug_source_file" ]; then
+                echo "Error: Missing artifact $xdebug_source_file"
+                find artifacts -maxdepth 3 -type f || true
+                exit 1
+              fi
+              mkdir -p "$workdir/modules"
+              install -m 755 "$xdebug_source_file" "$workdir/modules/xdebug.so"
+              tar_items="$tar_items modules/xdebug.so"
+            fi
 
             if [ "$WITH_FRANKENPHP" = "true" ]; then
               frankenphp_source_file="artifacts/php-frankenphp-${VERSION}-${target}/frankenphp"
@@ -175,12 +196,11 @@ jobs:
                 exit 1
               fi
               install -m 755 "$frankenphp_source_file" "$workdir/frankenphp"
-              tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$workdir" php php-fpm frankenphp
-              echo "Packed downloads/php-${VERSION}-${target}.tar.gz (php + php-fpm + frankenphp)"
-            else
-              tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$workdir" php php-fpm
-              echo "Packed downloads/php-${VERSION}-${target}.tar.gz (php + php-fpm)"
+              tar_items="$tar_items frankenphp"
             fi
+
+            tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$workdir" $tar_items
+            echo "Packed downloads/php-${VERSION}-${target}.tar.gz ($tar_items)"
           done
 
           ls -la downloads/
@@ -213,4 +233,5 @@ jobs:
 
             Assets:
               * `php-${{ inputs.php-version }}-<target>.tar.gz` (contains `php` and `php-fpm`)
+              * If `xdebug` is selected, Unix tarballs also contain `modules/xdebug.so`
               * If `build-frankenphp` is enabled, Unix tarballs also contain `frankenphp`
