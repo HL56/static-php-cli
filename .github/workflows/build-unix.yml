@@ -105,6 +105,7 @@ jobs:
       run: ${{ steps.gendef.outputs.run }}
       download: ${{ steps.gendef.outputs.download }}
       build: ${{ steps.gendef.outputs.build }}
+      xdebug: ${{ steps.gendef.outputs.xdebug }}
     steps:
       - name: "Checkout"
         uses: actions/checkout@v4
@@ -144,8 +145,43 @@ jobs:
               RUNS_ON="macos-15"
               ;;
           esac
-          DOWN_CMD="$DOWN_CMD --with-php=${{ inputs.php-version }} --for-extensions=${{ inputs.extensions }} --ignore-cache-sources=php-src"
-          BUILD_CMD="$BUILD_CMD ${{ inputs.extensions }}"
+
+          EXTENSIONS_RAW="${{ inputs.extensions }}"
+          EXTENSIONS="$(echo "$EXTENSIONS_RAW" | tr -d '[:space:]')"
+          SHARED_EXTENSIONS=""
+          HAS_XDEBUG=false
+          STATIC_EXTENSIONS="$EXTENSIONS"
+          if [[ ",$EXTENSIONS," == *",xdebug,"* ]]; then
+            SHARED_EXTENSIONS="xdebug"
+            HAS_XDEBUG=true
+            STATIC_EXTENSIONS="$(echo ",$EXTENSIONS," | sed -E 's/,xdebug,/,/g; s/^,//; s/,$//; s/,+/,/g')"
+          fi
+
+          if [ -z "$STATIC_EXTENSIONS" ]; then
+            echo "Error: xdebug is shared-only, please provide at least one static extension." >&2
+            exit 1
+          fi
+
+          # xdebug shared build on Linux requires a dynamic/glibc target.
+          if [ "$HAS_XDEBUG" = true ]; then
+            case "${{ inputs.os }}" in
+              linux-x86_64)
+                DOWN_CMD="./bin/spc-gnu-docker download"
+                BUILD_CMD="./bin/spc-gnu-docker build"
+                ;;
+              linux-aarch64)
+                DOWN_CMD="./bin/spc-gnu-docker download"
+                BUILD_CMD="./bin/spc-gnu-docker build"
+                RUNS_ON="ubuntu-22.04-arm"
+                ;;
+            esac
+          fi
+
+          DOWN_CMD="$DOWN_CMD --with-php=${{ inputs.php-version }} --for-extensions=$EXTENSIONS --ignore-cache-sources=php-src"
+          BUILD_CMD="$BUILD_CMD $STATIC_EXTENSIONS"
+          if [ -n "$SHARED_EXTENSIONS" ]; then
+            BUILD_CMD="$BUILD_CMD --build-shared=$SHARED_EXTENSIONS"
+          fi
           if [ -n "${{ inputs.extra-libs }}" ]; then
             DOWN_CMD="$DOWN_CMD --for-libs=${{ inputs.extra-libs }}"
             BUILD_CMD="$BUILD_CMD --with-libs=${{ inputs.extra-libs }}"
@@ -169,6 +205,7 @@ jobs:
           echo 'download='"$DOWN_CMD" >> "$GITHUB_OUTPUT"
           echo 'build='"$BUILD_CMD" >> "$GITHUB_OUTPUT"
           echo 'run='"$RUNS_ON" >> "$GITHUB_OUTPUT"
+          echo 'xdebug='"$HAS_XDEBUG" >> "$GITHUB_OUTPUT"
   build:
     name: "Build ${{ inputs.version }} on ${{ inputs.os }}"
     runs-on: ${{ needs.define-build.outputs.run }}
@@ -243,6 +280,14 @@ jobs:
         with:
           name: php-fpm-${{ inputs.php-version }}-${{ inputs.os }}
           path: buildroot/bin/php-fpm
+
+      # Upload shared xdebug module when requested
+      - if: ${{ needs.define-build.outputs.xdebug == 'true' }}
+        name: "Upload Xdebug Shared Module"
+        uses: actions/upload-artifact@v4
+        with:
+          name: php-xdebug-${{ inputs.php-version }}-${{ inputs.os }}
+          path: buildroot/modules/xdebug.so
 
       # Upload extensions metadata
       - uses: actions/upload-artifact@v4

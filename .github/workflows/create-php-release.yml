@@ -117,10 +117,18 @@ jobs:
           pattern: php-fpm-${{ inputs.php-version }}-*
           path: artifacts
 
+      - name: Download compiled Xdebug artifacts
+        if: contains(inputs.extensions, 'xdebug')
+        uses: actions/download-artifact@v4
+        with:
+          pattern: php-xdebug-${{ inputs.php-version }}-*
+          path: artifacts
+
       - name: Package release assets
         run: |
           set -euo pipefail
           VERSION="${{ inputs.php-version }}"
+          WITH_XDEBUG="${{ contains(inputs.extensions, 'xdebug') }}"
           TARGETS=(
             "linux-x86_64"
             "linux-aarch64"
@@ -148,7 +156,19 @@ jobs:
 
             install -m 755 "$cli_source_file" "$workdir/php"
             install -m 755 "$fpm_source_file" "$workdir/php-fpm"
-            tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$workdir" php php-fpm
+            if [ "$WITH_XDEBUG" = "true" ]; then
+              xdebug_source_file="artifacts/php-xdebug-${VERSION}-${target}/xdebug.so"
+              if [ ! -f "$xdebug_source_file" ]; then
+                echo "Error: Missing artifact $xdebug_source_file"
+                find artifacts -maxdepth 3 -type f || true
+                exit 1
+              fi
+              mkdir -p "$workdir/modules"
+              install -m 755 "$xdebug_source_file" "$workdir/modules/xdebug.so"
+              tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$workdir" php php-fpm modules/xdebug.so
+            else
+              tar -czf "downloads/php-${VERSION}-${target}.tar.gz" -C "$workdir" php php-fpm
+            fi
             echo "Packed downloads/php-${VERSION}-${target}.tar.gz (php + php-fpm)"
           done
 
@@ -182,3 +202,4 @@ jobs:
 
             Assets:
               * `php-${{ inputs.php-version }}-<target>.tar.gz` (contains `php` and `php-fpm`)
+              * If `xdebug` is selected, Unix tarballs also contain `modules/xdebug.so`
